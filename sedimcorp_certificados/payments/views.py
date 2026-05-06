@@ -20,21 +20,36 @@ from .services import PaymentServiceFactory
 from users.permissions import IsAdmin, IsStaffOrAdmin, IsParticipant, IsOwnerOrAdmin
 
 
-class PaymentMethodViewSet(viewsets.ReadOnlyModelViewSet):
+class PaymentMethodViewSet(viewsets.ModelViewSet):
     """
-    ViewSet para consultar métodos de pago.
+    ViewSet para gestionar métodos de pago.
     """
     
-    queryset = PaymentMethod.objects.filter(is_active=True)
+    queryset = PaymentMethod.objects.all()
     serializer_class = PaymentMethodSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'code'
+    
+    def get_permissions(self):
+        """Permisos según la acción."""
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny]
+        else:
+            permission_classes = [IsAdmin]
+        return [permission() for permission in permission_classes]
     
     def get_serializer_class(self):
         """Retorna serializador según acción."""
-        if self.action == 'retrieve':
+        if self.action == 'retrieve' or self.action == 'update' or self.action == 'partial_update':
             return PaymentMethodDetailSerializer
         return PaymentMethodSerializer
+    
+    def get_queryset(self):
+        """Filtra según estado si no es admin."""
+        queryset = PaymentMethod.objects.all()
+        if not self.request.user.is_authenticated or self.request.user.user_type != 'ADMIN':
+            queryset = queryset.filter(is_active=True)
+        return queryset
 
 
 class PaymentViewSet(viewsets.ModelViewSet):

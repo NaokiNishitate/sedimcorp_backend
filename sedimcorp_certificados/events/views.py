@@ -9,7 +9,9 @@ from django.db import transaction
 from django.db.models import Q, Count, Avg
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils.text import slugify
 import django_filters
+import uuid
 
 from .models import Category, Course, CourseModule, Enrollment, Attendance, Schedule
 from .serializers import (
@@ -31,6 +33,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [IsStaffOrAdmin]
+    pagination_class = None
     lookup_field = 'slug'
     filterset_fields = ['is_active']
     search_fields = ['name', 'description']

@@ -8,7 +8,8 @@ from django.dispatch import receiver
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
-from .models import Course, Enrollment, Attendance, CourseModule
+from django.utils.text import slugify
+from .models import Category, Course, Enrollment, Attendance, CourseModule
 from users.models import UserActivity
 from django.db import models
 import logging
@@ -16,16 +17,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+@receiver(pre_save, sender=Category)
+def handle_category_pre_save(sender, instance, **kwargs):
+    """
+    Señal que se ejecuta antes de guardar una categoría.
+    Genera el slug a partir del nombre si no existe.
+    """
+    if not instance.slug:
+        instance.slug = slugify(instance.name)
+
+
 @receiver(pre_save, sender=Course)
 def handle_course_pre_save(sender, instance, **kwargs):
     """
     Señal que se ejecuta antes de guardar un curso.
-    Valida fechas y genera código si es necesario.
+    Valida fechas y genera código/slug si es necesario.
     """
     if not instance.code:
         # Generar código automático
         import secrets
         instance.code = f"CRS-{secrets.token_hex(4).upper()}"
+    
+    if not instance.slug:
+        instance.slug = slugify(instance.title)
     
     # Validar fechas
     if instance.start_date and instance.end_date:

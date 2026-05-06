@@ -236,6 +236,7 @@ class UserListView(generics.ListAPIView):
     queryset = User.objects.filter(is_active=True)
     serializer_class = UserListSerializer
     permission_classes = [IsStaffOrAdmin]
+    pagination_class = None
     filterset_fields = ['user_type', 'is_active', 'email_verified']
     search_fields = ['email', 'first_name', 'last_name', 'document_number']
     ordering_fields = ['date_joined', 'last_login', 'email']

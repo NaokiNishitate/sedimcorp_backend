@@ -18,7 +18,7 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'code', 'name', 'description', 'icon',
             'min_amount', 'max_amount', 'commission_percentage',
-            'commission_fixed', 'is_active', 'order'
+            'commission_fixed', 'is_active', 'order', 'config'
         ]
         read_only_fields = ['id']
 

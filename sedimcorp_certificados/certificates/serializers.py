@@ -27,11 +27,16 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
         return value
     
     def create(self, validated_data):
-        """Crea plantilla con código generado si no se proporciona."""
+        """Crea plantilla con código generado si no se proporciona y asigna created_by si está disponible."""
         if 'code' not in validated_data:
             import secrets
             validated_data['code'] = f"TMP-{secrets.token_hex(4).upper()}"
-        validated_data['created_by'] = self.context['request'].user
+
+        # Only set 'created_by' if the request user is available and authenticated
+        if 'request' in self.context and self.context['request'].user.is_authenticated:
+            validated_data['created_by'] = self.context['request'].user
+        # else: 'created_by' will be None, which is allowed by the model
+
         return super().create(validated_data)
 
 

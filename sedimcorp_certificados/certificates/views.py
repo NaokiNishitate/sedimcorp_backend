@@ -32,6 +32,7 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
     queryset = CertificateTemplate.objects.all()
     serializer_class = CertificateTemplateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
     search_fields = ['name', 'code', 'description']
     filterset_fields = ['is_active', 'is_default', 'orientation', 'paper_size']
     ordering_fields = ['name', 'created_at']
