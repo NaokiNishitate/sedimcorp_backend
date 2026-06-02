@@ -123,6 +123,29 @@ class CourseViewSet(viewsets.ModelViewSet):
         """Guarda el usuario que crea el curso."""
         serializer.save(created_by=self.request.user)
     
+    def get_object(self):
+        """
+        Permite buscar por slug (por defecto) o por ID (UUID).
+        """
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        lookup_value = self.kwargs[lookup_url_kwarg]
+
+        # Intentar por el lookup_field por defecto (slug)
+        try:
+            return super().get_object()
+        except Exception:
+            # Si falla, intentar buscar por ID si parece un UUID
+            import re
+            uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+            if uuid_pattern.match(lookup_value):
+                try:
+                    return self.get_queryset().get(id=lookup_value)
+                except Course.DoesNotExist:
+                    pass
+            
+            # Si nada funciona, relanzar la excepción original
+            raise
+    
     @action(detail=True, methods=['post'])
     def enroll(self, request, slug=None):
         """

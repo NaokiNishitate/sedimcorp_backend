@@ -49,7 +49,7 @@ def handle_payment_post_save(sender, instance, created, **kwargs):
         )
     
     # Si el pago se confirma, actualizar inscripción
-    if instance.status == 'COMPLETED' and instance.payment_confirmed:
+    if instance.status == 'COMPLETED':
         try:
             enrollment = instance.enrollment
             if enrollment.status == 'PENDING':

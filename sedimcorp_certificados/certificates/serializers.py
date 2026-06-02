@@ -2,6 +2,7 @@
 Serializadores para el módulo de certificados.
 """
 
+import secrets
 from rest_framework import serializers
 from .models import CertificateTemplate, Certificate, CertificateLog
 from events.serializers import EnrollmentSerializer
@@ -14,28 +15,34 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
     """
     
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    template_file = serializers.FileField(required=False, allow_null=True)
+    background_image = serializers.ImageField(required=False, allow_null=True)
     
     class Meta:
         model = CertificateTemplate
         fields = '__all__'
-        read_only_fields = ['id', 'code', 'created_at', 'updated_at', 'created_by']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'created_by',
+            'name_position_x', 'name_position_y',
+            'course_position_x', 'course_position_y',
+            'date_position_x', 'date_position_y',
+            'qr_position_x', 'qr_position_y'
+        ]
     
     def validate_code(self, value):
         """Valida que el código sea único."""
-        if CertificateTemplate.objects.filter(code=value).exists():
+        queryset = CertificateTemplate.objects.filter(code=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        
+        if queryset.exists():
             raise serializers.ValidationError('Ya existe una plantilla con este código')
         return value
     
     def create(self, validated_data):
-        """Crea plantilla con código generado si no se proporciona y asigna created_by si está disponible."""
-        if 'code' not in validated_data:
-            import secrets
+        """Crea plantilla con código generado si no se proporciona."""
+        if 'code' not in validated_data or not validated_data['code']:
             validated_data['code'] = f"TMP-{secrets.token_hex(4).upper()}"
-
-        # Only set 'created_by' if the request user is available and authenticated
-        if 'request' in self.context and self.context['request'].user.is_authenticated:
-            validated_data['created_by'] = self.context['request'].user
-        # else: 'created_by' will be None, which is allowed by the model
 
         return super().create(validated_data)
 

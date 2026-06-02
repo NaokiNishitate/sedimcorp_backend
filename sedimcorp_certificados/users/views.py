@@ -16,12 +16,12 @@ import json
 
 from .models import User, PasswordReset, UserActivity
 from .serializers import (
-    UserSerializer, UserRegistrationSerializer, UserListSerializer,
-    ChangePasswordSerializer, PasswordResetRequestSerializer,
+    UserSerializer, UserRegistrationSerializer, AdminUserCreateSerializer,
+    UserListSerializer, ChangePasswordSerializer, PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer, UserActivitySerializer
 )
 from .permissions import IsAdmin, IsOwnerOrAdmin, IsStaffOrAdmin
-from utils.helpers import generate_token, send_email_template
+from utils.helpers import generate_token, send_email_template, get_client_ip
 
 
 class RegisterView(generics.CreateAPIView):
@@ -55,6 +55,26 @@ class RegisterView(generics.CreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class AdminCreateUserView(generics.CreateAPIView):
+    """
+    Vista para que administradores creen nuevos usuarios (ej: instructores).
+    No retorna tokens de acceso.
+    """
+    serializer_class = AdminUserCreateSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        
+        user_data = UserSerializer(user, context={'request': request}).data
+        return Response({
+            'user': user_data,
+            'message': 'Usuario creado exitosamente por el administrador'
+        }, status=status.HTTP_201_CREATED)
+
+
 class LoginView(views.APIView):
     """
     Vista para inicio de sesión.
@@ -65,7 +85,7 @@ class LoginView(views.APIView):
     
     def post(self, request):
         """Inicia sesión con email y contraseña."""
-        email = request.data.get('email')
+        email = request.data.get('email', '').strip().lower()
         password = request.data.get('password')
         
         if not email or not password:
@@ -77,31 +97,9 @@ class LoginView(views.APIView):
         user = authenticate(request, username=email, password=password)
         
         if not user:
-            # Registrar intento fallido
-            try:
-                user_obj = User.objects.get(email=email)
-                user_obj.increment_failed_attempts()
-                
-                # Registrar actividad
-                UserActivity.objects.create(
-                    user=user_obj,
-                    activity_type='LOGIN_FAILED',
-                    description='Intento de inicio de sesión fallido',
-                    ip_address=self._get_client_ip(request),
-                    user_agent=request.META.get('HTTP_USER_AGENT', '')
-                )
-            except User.DoesNotExist:
-                pass
-            
             return Response({
                 'error': 'Credenciales inválidas'
             }, status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Verificar si la cuenta está bloqueada
-        if user.is_locked():
-            return Response({
-                'error': f'Cuenta bloqueada. Intente nuevamente después de {user.locked_until.strftime("%H:%M")}'
-            }, status=status.HTTP_403_FORBIDDEN)
         
         # Verificar si el usuario está activo
         if not user.is_active:
@@ -109,12 +107,9 @@ class LoginView(views.APIView):
                 'error': 'Cuenta desactivada. Contacte al administrador'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Resetear intentos fallidos
-        user.reset_failed_attempts()
-        
         # Actualizar último login e IP
         user.last_login = timezone.now()
-        user.last_ip = self._get_client_ip(request)
+        user.last_ip = get_client_ip(request)
         user.save(update_fields=['last_login', 'last_ip'])
         
         # Registrar actividad
@@ -139,15 +134,6 @@ class LoginView(views.APIView):
                 'access': str(refresh.access_token),
             }
         }, status=status.HTTP_200_OK)
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
 
 class LogoutView(views.APIView):
@@ -159,38 +145,26 @@ class LogoutView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def post(self, request):
-        """Cierra la sesión del usuario."""
+        """Cierra la sesión del usuario de forma simbólica."""
         try:
-            refresh_token = request.data.get('refresh')
-            if refresh_token:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            
-            # Registrar actividad
-            UserActivity.objects.create(
-                user=request.user,
-                activity_type='LOGOUT',
-                description='Cierre de sesión',
-                ip_address=self._get_client_ip(request),
-                user_agent=request.META.get('HTTP_USER_AGENT', '')
-            )
+            # Registrar actividad de cierre de sesión
+            if request.user.is_authenticated:
+                UserActivity.objects.create(
+                    user=request.user,
+                    activity_type='LOGOUT',
+                    description='Cierre de sesión (Frontend cleanup)',
+                    ip_address=get_client_ip(request),
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')
+                )
             
             return Response({
-                'message': 'Sesión cerrada exitosamente'
+                'message': 'Sesión cerrada correctamente'
             }, status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception:
+            # Siempre devolvemos éxito para permitir que el frontend continúe con su limpieza
             return Response({
-                'error': 'Error al cerrar sesión'
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+                'message': 'Limpieza de sesión completada'
+            }, status=status.HTTP_200_OK)
 
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -213,18 +187,9 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
             user=instance,
             activity_type='ACCOUNT_DEACTIVATED',
             description='Cuenta desactivada',
-            ip_address=self._get_client_ip(self.request),
+            ip_address=get_client_ip(self.request),
             user_agent=self.request.META.get('HTTP_USER_AGENT', '')
         )
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
 
 class UserListView(generics.ListAPIView):
@@ -282,7 +247,7 @@ class ChangePasswordView(views.APIView):
                 user=user,
                 activity_type='PASSWORD_CHANGE',
                 description='Cambio de contraseña',
-                ip_address=self._get_client_ip(request),
+                ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
             
@@ -291,15 +256,6 @@ class ChangePasswordView(views.APIView):
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
 
 class PasswordResetRequestView(views.APIView):
@@ -325,7 +281,7 @@ class PasswordResetRequestView(views.APIView):
                 user=user,
                 token=token,
                 expires_at=timezone.now() + timezone.timedelta(hours=24),
-                ip_address=self._get_client_ip(request),
+                ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
             
@@ -345,15 +301,6 @@ class PasswordResetRequestView(views.APIView):
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
 
 class PasswordResetConfirmView(views.APIView):
@@ -385,7 +332,7 @@ class PasswordResetConfirmView(views.APIView):
                 user=user,
                 activity_type='PASSWORD_RESET',
                 description='Contraseña restablecida',
-                ip_address=self._get_client_ip(request),
+                ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
             
@@ -394,15 +341,7 @@ class PasswordResetConfirmView(views.APIView):
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+
 
 
 class UserActivityView(generics.ListAPIView):
@@ -430,3 +369,28 @@ class CurrentUserView(views.APIView):
         """Retorna los datos del usuario actual."""
         serializer = UserSerializer(request.user, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def patch(self, request):
+        """Actualiza parcialmente los datos del usuario actual."""
+        serializer = UserSerializer(
+            request.user, 
+            data=request.data, 
+            partial=True,
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def put(self, request):
+        """Actualiza todos los datos del usuario actual."""
+        serializer = UserSerializer(
+            request.user, 
+            data=request.data,
+            context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -5,7 +5,23 @@ Configuración del panel de administración para el módulo de eventos.
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
-from .models import Category, Course, CourseModule, Enrollment, Attendance, Schedule
+from .models import Category, Course, CourseModule, Lesson, Enrollment, Attendance, Schedule
+
+
+class LessonInline(admin.TabularInline):
+    """Inline para lecciones en el admin de módulos."""
+    model = Lesson
+    extra = 1
+    fields = ['title', 'order', 'duration_minutes', 'is_visible']
+
+
+@admin.register(Lesson)
+class LessonAdmin(admin.ModelAdmin):
+    """Configuración para lecciones en el admin."""
+    list_display = ['title', 'module', 'order', 'duration_minutes', 'is_visible']
+    list_filter = ['module__course', 'is_visible']
+    search_fields = ['title', 'description']
+    ordering = ['module', 'order']
 
 
 @admin.register(Category)
@@ -161,7 +177,8 @@ class EnrollmentAdmin(admin.ModelAdmin):
     
     list_display = [
         'enrollment_code', 'course', 'participant',
-        'status', 'payment_confirmed', 'is_approved',
+        'status', 'payment_amount', 'payment_method',
+        'payment_confirmed', 'is_approved',
         'enrollment_date'
     ]
     
@@ -263,3 +280,13 @@ class AttendanceAdmin(admin.ModelAdmin):
     ]
     
     readonly_fields = ['duration_minutes', 'created_at']
+
+
+@admin.register(CourseModule)
+class CourseModuleAdmin(admin.ModelAdmin):
+    """Configuración para módulos en el admin."""
+    list_display = ['title', 'course', 'order', 'duration_hours', 'is_visible']
+    list_filter = ['course', 'is_visible']
+    search_fields = ['title', 'description']
+    ordering = ['course', 'order']
+    inlines = [LessonInline]

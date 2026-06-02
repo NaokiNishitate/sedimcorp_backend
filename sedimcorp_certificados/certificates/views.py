@@ -37,6 +37,10 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
     filterset_fields = ['is_active', 'is_default', 'orientation', 'paper_size']
     ordering_fields = ['name', 'created_at']
     
+    def perform_create(self, serializer):
+        """Asigna el usuario actual como creador de la plantilla."""
+        serializer.save(created_by=self.request.user)
+    
     def get_queryset(self):
         """Personaliza el queryset según el usuario."""
         queryset = super().get_queryset()

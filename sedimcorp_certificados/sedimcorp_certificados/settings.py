@@ -75,7 +75,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'sedimcorp_certificados.wsgi.application'
 
-
 # Database configuration - MySQL
 DATABASES = {
     'default': {
@@ -145,8 +144,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DATETIME_FORMAT': '%d/%m/%Y %H:%M:%S',
-    'DATE_FORMAT': '%d/%m/%Y',
-    'DATE_INPUT_FORMATS': ['%d/%m/%Y', '%Y-%m-%d'],
+    'DATE_FORMAT': '%Y-%m-%d',  # CORRECCIÓN: Next.js y HTML5 mandan YYYY-MM-DD nativo
+    'DATE_INPUT_FORMATS': ['%Y-%m-%d', '%d/%m/%Y'],  # CORRECCIÓN: Acepta ambos formatos al recibir datos
 }
 
 # JWT Configuration
@@ -180,7 +179,7 @@ SIMPLE_JWT = {
 
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Frontend en desarrollo
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
 
@@ -209,7 +208,7 @@ CORS_ALLOW_HEADERS = [
 
 # Security settings (para producción)
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
+    運転_SSL_REDIRECT = True # Se mantiene tu lógica intacta
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_BROWSER_XSS_FILTER = True

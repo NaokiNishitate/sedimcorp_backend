@@ -48,10 +48,11 @@ class PaymentAdmin(admin.ModelAdmin):
     
     list_display = [
         'payment_code', 'user', 'enrollment', 'payment_method',
-        'amount', 'status', 'created_at', 'confirmed_at'
+        'amount', 'commission', 'net_amount', 'status', 
+        'created_at', 'confirmed_at'
     ]
     
-    list_filter = ['status', 'payment_method', 'created_at']
+    list_filter = ['status', 'payment_method', 'created_at', 'bank_name']
     search_fields = ['payment_code', 'user__email', 'enrollment__enrollment_code']
     
     readonly_fields = [

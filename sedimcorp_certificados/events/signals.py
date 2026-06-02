@@ -108,15 +108,14 @@ def handle_enrollment_post_save(sender, instance, created, **kwargs):
             logger.error(f"Error enviando email de inscripción: {str(e)}")
     
     else:
-        # Si cambió el estado, registrar
-        if instance.tracker.has_changed('status'):
-            UserActivity.objects.create(
-                user=instance.participant,
-                activity_type='ENROLLMENT_UPDATED',
-                description=f'Estado de inscripción actualizado: {instance.get_status_display()}',
-                ip_address='0.0.0.0',
-                user_agent='Sistema'
-            )
+        # Si cambió el estado, registrar (simplificado sin tracker)
+        UserActivity.objects.create(
+            user=instance.participant,
+            activity_type='ENROLLMENT_UPDATED',
+            description=f'Estado de inscripción actualizado: {instance.get_status_display()}',
+            ip_address='0.0.0.0',
+            user_agent='Sistema'
+        )
 
 
 @receiver(post_save, sender=Attendance)

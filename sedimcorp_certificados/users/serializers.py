@@ -9,6 +9,7 @@ from django.core import exceptions as django_exceptions
 from django.utils import timezone
 from .models import User, PasswordReset, UserActivity
 import re
+from utils.helpers import get_client_ip
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -101,10 +102,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         """Crea un nuevo usuario con la contraseña encriptada."""
+        user_type = validated_data.get('user_type', 'PARTICIPANT')
+        is_staff = user_type in ['ADMIN', 'STAFF']
+        is_superuser = user_type == 'ADMIN'
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
-            **{k: v for k, v in validated_data.items() if k not in ['email', 'password']}
+            is_staff=is_staff,
+            is_superuser=is_superuser,
+            **{k: v for k, v in validated_data.items() if k not in ['email', 'password', 'is_staff', 'is_superuser']}
         )
         
         # Registrar actividad
@@ -114,20 +121,72 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 user=user,
                 activity_type='REGISTRATION',
                 description='Registro de nuevo usuario',
-                ip_address=self._get_client_ip(request),
+                ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
         
         return user
+
+
+class AdminUserCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializador específico para que administradores creen usuarios.
+    No requiere confirmación de contraseña y asigna is_staff automáticamente.
+    """
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        validators=[validate_password],
+        error_messages={'required': 'La contraseña es obligatoria'}
+    )
     
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+    class Meta:
+        model = User
+        fields = [
+            'email', 'password', 'first_name', 'last_name',
+            'document_type', 'document_number', 'phone',
+            'user_type', 'professional_title'
+        ]
+        extra_kwargs = {
+            'first_name': {'required': True},
+            'last_name': {'required': True},
+            'document_number': {'required': True},
+            'email': {'required': True},
+        }
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('Este email ya está registrado')
+        return value
+
+    def validate_document_number(self, value):
+        if User.objects.filter(document_number=value).exists():
+            raise serializers.ValidationError('Este número de documento ya está registrado')
+        return value
+
+    def create(self, validated_data):
+        email = validated_data.pop('email')
+        password = validated_data.pop('password')
+        
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            **validated_data
+        )
+        
+        # Registrar actividad
+        request = self.context.get('request')
+        if request:
+            UserActivity.objects.create(
+                user=user,
+                activity_type='REGISTRATION',
+                description=f'Usuario creado por administrador ({request.user.email})',
+                ip_address=get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT', 'Sistema')
+            )
+        
+        return user
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -177,6 +236,18 @@ class UserSerializer(serializers.ModelSerializer):
         required_fields = ['first_name', 'last_name', 'document_number', 'phone']
         return all(getattr(obj, field) for field in required_fields)
     
+    def validate_gender(self, value):
+        """Permite valores vacíos convirtiéndolos a None."""
+        if value == "" or value is None:
+            return None
+        return value
+
+    def validate_birth_date(self, value):
+        """Permite valores vacíos convirtiéndolos a None."""
+        if value == "" or value is None:
+            return None
+        return value
+
     def update(self, instance, validated_data):
         """Actualización de usuario con registro de actividad."""
         # Registrar actividad antes de actualizar
@@ -193,20 +264,11 @@ class UserSerializer(serializers.ModelSerializer):
                 user=instance,
                 activity_type='PROFILE_UPDATE',
                 description='Actualización de perfil',
-                ip_address=self._get_client_ip(request),
+                ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
         
         return instance
-    
-    def _get_client_ip(self, request):
-        """Obtiene la IP real del cliente."""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -219,8 +281,8 @@ class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'full_name', 'user_type',
-            'document_number', 'is_active', 'date_joined'
+            'id', 'email', 'full_name', 'first_name', 'last_name',
+            'user_type', 'document_number', 'is_active', 'date_joined'
         ]
     
     def get_full_name(self, obj):

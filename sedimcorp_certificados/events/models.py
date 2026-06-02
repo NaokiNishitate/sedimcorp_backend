@@ -180,7 +180,9 @@ class Course(models.Model):
     # Imágenes y multimedia
     cover_image = models.ImageField(
         upload_to='courses/covers/',
-        verbose_name='Imagen de portada'
+        verbose_name='Imagen de portada',
+        blank=True,
+        null=True
     )
     
     thumbnail_image = models.ImageField(
@@ -211,13 +213,17 @@ class Course(models.Model):
         verbose_name='Modalidad'
     )
     
-    duration_hours = models.PositiveIntegerField(
-        validators=[MinValueValidator(1)],
+    duration_hours = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0.5)],
         verbose_name='Duración total (horas)'
     )
     
-    duration_weeks = models.PositiveIntegerField(
-        validators=[MinValueValidator(1)],
+    duration_weeks = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(0.1)],
         verbose_name='Duración (semanas)'
     )
     
@@ -575,6 +581,71 @@ class CourseModule(models.Model):
         return f"{self.course.code} - {self.title}"
 
 
+class Lesson(models.Model):
+    """
+    Lecciones individuales dentro de un módulo de curso.
+    """
+    
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        verbose_name='ID'
+    )
+    
+    module = models.ForeignKey(
+        CourseModule,
+        on_delete=models.CASCADE,
+        related_name='lessons',
+        verbose_name='Módulo'
+    )
+    
+    title = models.CharField(
+        max_length=200,
+        verbose_name='Título de la lección'
+    )
+    
+    description = models.TextField(
+        max_length=1000,
+        verbose_name='Descripción',
+        blank=True,
+        null=True
+    )
+    
+    order = models.PositiveIntegerField(
+        verbose_name='Orden'
+    )
+    
+    duration_minutes = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Duración (minutos)'
+    )
+    
+    is_visible = models.BooleanField(
+        default=True,
+        verbose_name='¿Visible?'
+    )
+    
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Fecha de creación'
+    )
+    
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Última actualización'
+    )
+    
+    class Meta:
+        verbose_name = 'Lección'
+        verbose_name_plural = 'Lecciones'
+        ordering = ['module', 'order']
+        unique_together = ['module', 'order']
+    
+    def __str__(self):
+        return f"{self.module.title} - {self.title}"
+
+
 class Enrollment(models.Model):
     """
     Inscripciones de participantes a cursos.
@@ -791,7 +862,7 @@ class Enrollment(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.enrollment_code} - {self.participant.get_full_name()} - {self.course.title}"
+        return f"{self.enrollment_code} - {self.participant.get_full_name()} - {self.course.title} ({self.payment_amount})"
     
     def save(self, *args, **kwargs):
         """Override save para generar código único."""

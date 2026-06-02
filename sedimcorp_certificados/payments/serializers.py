@@ -5,7 +5,7 @@ Serializadores para el módulo de pagos.
 from rest_framework import serializers
 from .models import PaymentMethod, Payment, PaymentTransaction, Refund
 from events.models import Enrollment
-from users.serializers import UserSerializer
+from users.serializers import UserSerializer, UserListSerializer
 
 
 class PaymentMethodSerializer(serializers.ModelSerializer):
@@ -39,17 +39,27 @@ class PaymentListSerializer(serializers.ModelSerializer):
     Serializador para listados de pagos.
     """
     
-    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    enrollment_code = serializers.CharField(source='enrollment.enrollment_code', read_only=True)
-    payment_method_name = serializers.CharField(source='payment_method.name', read_only=True)
+    user = UserListSerializer(read_only=True)
+    payment_method = PaymentMethodSerializer(read_only=True)
+    course = serializers.SerializerMethodField()
     
     class Meta:
         model = Payment
         fields = [
-            'id', 'payment_code', 'user_name', 'enrollment_code',
-            'payment_method_name', 'amount', 'status', 'created_at',
+            'id', 'payment_code', 'user', 'course',
+            'payment_method', 'amount', 'status', 'created_at',
             'confirmed_at'
         ]
+
+    def get_course(self, obj):
+        """Retorna información básica del curso asociado."""
+        if obj.enrollment and obj.enrollment.course:
+            return {
+                'id': obj.enrollment.course.id,
+                'title': obj.enrollment.course.title,
+                'code': obj.enrollment.course.code,
+            }
+        return None
 
 
 class PaymentDetailSerializer(serializers.ModelSerializer):

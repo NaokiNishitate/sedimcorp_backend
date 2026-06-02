@@ -18,22 +18,11 @@ class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         """
         Crea y guarda un usuario regular con el email y contraseña dados.
-        
-        Args:
-            email (str): Correo electrónico del usuario
-            password (str): Contraseña del usuario
-            **extra_fields: Campos adicionales del modelo
-        
-        Returns:
-            User: Instancia del usuario creado
-        
-        Raises:
-            ValueError: Si el email no está proporcionado
         """
         if not email:
             raise ValueError('El email es obligatorio')
         
-        email = self.normalize_email(email)
+        email = self.normalize_email(email).lower().strip()
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -394,7 +383,9 @@ class UserActivity(models.Model):
     """
     
     ACTIVITY_TYPES = [
+        ('REGISTRATION', 'Registro de usuario'),
         ('LOGIN', 'Inicio de sesión'),
+        ('LOGIN_FAILED', 'Intento de sesión fallido'),
         ('LOGOUT', 'Cierre de sesión'),
         ('PASSWORD_CHANGE', 'Cambio de contraseña'),
         ('PROFILE_UPDATE', 'Actualización de perfil'),

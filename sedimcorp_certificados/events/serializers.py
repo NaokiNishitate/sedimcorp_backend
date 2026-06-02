@@ -5,7 +5,8 @@ Serializadores para el módulo de eventos y cursos.
 from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
-from .models import Category, Course, CourseModule, Enrollment, Attendance, Schedule
+from .models import Category, Course, CourseModule, Lesson, Enrollment, Attendance, Schedule
+from certificates.models import CertificateTemplate
 from users.serializers import UserSerializer
 from users.models import User
 import re
@@ -36,18 +37,41 @@ class CategorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('El nombre debe tener al menos 3 caracteres')
         return value
 
+    def create(self, validated_data):
+        """Crea una categoría con slug automático."""
+        from django.utils.text import slugify
+        if 'slug' not in validated_data or not validated_data['slug']:
+            validated_data['slug'] = slugify(validated_data['name'])
+        return super().create(validated_data)
+
+
+class LessonSerializer(serializers.ModelSerializer):
+    """
+    Serializador para lecciones de módulo.
+    """
+    
+    class Meta:
+        model = Lesson
+        fields = [
+            'id', 'title', 'description', 'order',
+            'duration_minutes', 'is_visible'
+        ]
+        read_only_fields = ['id']
+
 
 class CourseModuleSerializer(serializers.ModelSerializer):
     """
     Serializador para módulos de curso.
     """
     
+    lessons = LessonSerializer(many=True, required=False)
+    
     class Meta:
         model = CourseModule
         fields = [
             'id', 'title', 'description', 'order',
             'duration_hours', 'objectives', 'content',
-            'resources', 'is_visible'
+            'resources', 'is_visible', 'lessons'
         ]
         read_only_fields = ['id']
 
@@ -91,7 +115,7 @@ class CourseListSerializer(serializers.ModelSerializer):
             'id', 'code', 'title', 'slug', 'category_name',
             'short_description', 'cover_image', 'thumbnail_image',
             'difficulty', 'modality', 'duration_hours', 'duration_weeks',
-            'start_date', 'end_date', 'current_price', 'status',
+            'start_date', 'end_date', 'price', 'current_price', 'status',
             'instructors_names', 'enrollment_count', 'rating_avg',
             'is_featured', 'is_enrollment_open'
         ]
@@ -117,7 +141,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         write_only=True
     )
     
-    modules = CourseModuleSerializer(many=True, read_only=True)
+    modules = CourseModuleSerializer(many=True, required=False)
     schedules = ScheduleSerializer(many=True, read_only=True)
     
     coordinator = UserSerializer(read_only=True)
@@ -144,6 +168,17 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         required=False
     )
     
+    certificate_template = serializers.PrimaryKeyRelatedField(
+        read_only=True
+    )
+    certificate_template_id = serializers.PrimaryKeyRelatedField(
+        queryset=CertificateTemplate.objects.all(),
+        source='certificate_template',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+    
     created_by = UserSerializer(read_only=True)
     current_price = serializers.SerializerMethodField()
     available_slots = serializers.SerializerMethodField()
@@ -165,20 +200,80 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         """Retorna los cupos disponibles."""
         return obj.max_participants - obj.enrollment_count
     
+    @transaction.atomic
+    def create(self, validated_data):
+        """Crea un curso con sus módulos y lecciones."""
+        modules_data = validated_data.pop('modules', [])
+        instructors = validated_data.pop('instructors', [])
+        assistants = validated_data.pop('assistants', [])
+        
+        course = Course.objects.create(**validated_data)
+        
+        # Asignar relaciones M2M
+        if instructors:
+            course.instructors.set(instructors)
+        if assistants:
+            course.assistants.set(assistants)
+            
+        # Crear módulos y sus lecciones
+        for module_data in modules_data:
+            lessons_data = module_data.pop('lessons', [])
+            module = CourseModule.objects.create(course=course, **module_data)
+            
+            # Crear lecciones del módulo
+            for lesson_data in lessons_data:
+                Lesson.objects.create(module=module, **lesson_data)
+            
+        return course
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """Actualiza un curso, sus módulos y lecciones."""
+        modules_data = validated_data.pop('modules', None)
+        instructors = validated_data.pop('instructors', None)
+        assistants = validated_data.pop('assistants', None)
+        
+        # Actualizar el curso
+        instance = super().update(instance, validated_data)
+        
+        # Manejar relaciones M2M
+        if instructors is not None:
+            instance.instructors.set(instructors)
+        if assistants is not None:
+            instance.assistants.set(assistants)
+            
+        # Actualizar módulos y lecciones si se proporcionaron
+        if modules_data is not None:
+            # Eliminar módulos actuales (esto eliminará lecciones por CASCADE)
+            instance.modules.all().delete()
+            
+            for module_data in modules_data:
+                lessons_data = module_data.pop('lessons', [])
+                module_data.pop('id', None)
+                
+                module = CourseModule.objects.create(course=instance, **module_data)
+                
+                # Crear lecciones
+                for lesson_data in lessons_data:
+                    lesson_data.pop('id', None)
+                    Lesson.objects.create(module=module, **lesson_data)
+        
+        return instance
+
     def validate(self, data):
         """Validaciones cruzadas para fechas."""
         # Validar fechas del curso
         if 'start_date' in data and 'end_date' in data:
-            if data['start_date'] >= data['end_date']:
+            if data['start_date'] > data['end_date']:
                 raise serializers.ValidationError(
-                    'La fecha de fin debe ser posterior a la fecha de inicio'
+                    'La fecha de fin no puede ser anterior a la fecha de inicio'
                 )
         
         # Validar fechas de inscripción
         if 'enrollment_start' in data and 'enrollment_end' in data:
-            if data['enrollment_start'] >= data['enrollment_end']:
+            if data['enrollment_start'] > data['enrollment_end']:
                 raise serializers.ValidationError(
-                    'La fecha de fin de inscripción debe ser posterior a la fecha de inicio'
+                    'La fecha de fin de inscripción no puede ser anterior a la fecha de inicio'
                 )
         
         return data
